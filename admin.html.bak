@@ -48,7 +48,6 @@
             padding: 30px;
         }
 
-        /* Upload Section */
         .upload-section {
             background: #f8f9fa;
             padding: 30px;
@@ -72,7 +71,8 @@
             color: #555;
         }
 
-        .form-group input[type="text"] {
+        .form-group input[type="text"],
+        .form-group input[type="number"] {
             width: 100%;
             padding: 12px;
             border: 2px solid #e0e0e0;
@@ -81,7 +81,7 @@
             transition: border-color 0.3s;
         }
 
-        .form-group input[type="text"]:focus {
+        .form-group input:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -147,7 +147,6 @@
             background: #c0392b;
         }
 
-        /* User List */
         .user-list h2 {
             margin-bottom: 20px;
             color: #333;
@@ -237,6 +236,25 @@
                 opacity: 1;
             }
         }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
     </style>
 </head>
 
@@ -248,9 +266,26 @@
         </div>
 
         <div class="content">
+            <!-- System Configuration -->
+            <div class="upload-section">
+                <h2>系统配置</h2>
+                <div class="form-group">
+                    <label>相似度阈值 (0-1)</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="range" id="thresholdSlider" min="0" max="1" step="0.01" style="flex: 1;">
+                        <input type="number" id="thresholdValue" min="0" max="1" step="0.01" style="width: 100px;">
+                        <button class="btn btn-primary" onclick="updateThreshold()" style="padding: 8px 20px;">
+                            保存</button>
+                    </div>
+                    <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                        建议值：0.45-0.55。值越高越严格，误识率越低但拒识率越高。
+                    </p>
+                </div>
+            </div>
+
             <!-- Upload Section -->
             <div class="upload-section">
-                <h2>📤 添加新用户</h2>
+                <h2>添加新用户</h2>
                 <form id="uploadForm">
                     <div class="form-group">
                         <label>姓名</label>
@@ -265,13 +300,13 @@
                             </div>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">✨ 提取特征并入库</button>
+                    <button type="submit" class="btn btn-primary">提取特征并入库</button>
                 </form>
             </div>
 
             <!-- User List -->
             <div class="user-list">
-                <h2>👥 已录入人员 (<span id="userCount">0</span>)</h2>
+                <h2>已录入人员 (<span id="userCount">0</span>)</h2>
                 <div id="userGrid" class="user-grid"></div>
             </div>
         </div>
@@ -282,7 +317,6 @@
     <script>
         const API_BASE = 'http://localhost:8070';
 
-        // Show toast notification
         function showToast(message, type = 'success') {
             const toast = document.getElementById('toast');
             toast.textContent = message;
@@ -290,7 +324,46 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
 
-        // Load users
+        async function loadConfig() {
+            try {
+                const res = await fetch(`${API_BASE}/api/config`);
+                const json = await res.json();
+                if (json.code === 200) {
+                    const threshold = json.data.similarity_threshold;
+                    document.getElementById('thresholdSlider').value = threshold;
+                    document.getElementById('thresholdValue').value = threshold;
+                }
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        async function updateThreshold() {
+            const threshold = parseFloat(document.getElementById('thresholdValue').value);
+
+            if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+                showToast('阈值必须在 0-1 之间', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ similarity_threshold: threshold })
+                });
+                const json = await res.json();
+
+                if (json.code === 200) {
+                    showToast(`阈值已更新为 ${threshold}`);
+                } else {
+                    showToast(json.msg, 'error');
+                }
+            } catch (e) {
+                showToast('更新失败', 'error');
+            }
+        }
+
         async function loadUsers() {
             try {
                 const res = await fetch(`${API_BASE}/api/users`);
@@ -303,7 +376,6 @@
             }
         }
 
-        // Render users
         function renderUsers(users) {
             const grid = document.getElementById('userGrid');
             const count = document.getElementById('userCount');
@@ -320,13 +392,12 @@
                     <div class="user-name">${user.name}</div>
                     <div class="user-id">ID: ${user.id}</div>
                     <button class="btn btn-danger" onclick="deleteUser(${user.id}, '${user.name}')">
-                        🗑️ 删除
+                        删除
                     </button>
                 </div>
             `).join('');
         }
 
-        // Delete user
         async function deleteUser(id, name) {
             if (!confirm(`确定要删除 ${name} 吗？`)) return;
 
@@ -344,7 +415,6 @@
             }
         }
 
-        // Upload form
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -368,9 +438,9 @@
                 const json = await res.json();
 
                 if (json.code === 200) {
-                    showToast(`✅ ${name} 添加成功！特征已提取并入库`);
+                    showToast(`${name} 添加成功！特征已提取并入库`);
                     document.getElementById('uploadForm').reset();
-                    document.getElementById('fileName').textContent = '📷 点击选择照片或拖拽到此处';
+                    document.getElementById('fileName').textContent = '点击选择照片或拖拽到此处';
                     loadUsers();
                 } else {
                     showToast(json.msg, 'error');
@@ -380,13 +450,19 @@
             }
         });
 
-        // File input label update
         document.getElementById('userPhoto').addEventListener('change', (e) => {
             const fileName = e.target.files[0]?.name || '📷 点击选择照片或拖拽到此处';
             document.getElementById('fileName').textContent = fileName;
         });
 
-        // Initial load
+        document.getElementById('thresholdSlider').addEventListener('input', (e) => {
+            document.getElementById('thresholdValue').value = e.target.value;
+        });
+        document.getElementById('thresholdValue').addEventListener('input', (e) => {
+            document.getElementById('thresholdSlider').value = e.target.value;
+        });
+
+        loadConfig();
         loadUsers();
     </script>
 </body>

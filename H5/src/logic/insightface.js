@@ -61,10 +61,11 @@ export class InsightFaceEngine {
             const g = data[i * 4 + 1];
             const b = data[i * 4 + 2];
 
+            // InsightFace ONNX (MobileFaceNet) usually expects RGB order
             // Normalization: (x - 127.5) / 127.5
-            float32Data[i] = (r - 127.5) / 127.5;
-            float32Data[i + width * height] = (g - 127.5) / 127.5;
-            float32Data[i + 2 * width * height] = (b - 127.5) / 127.5;
+            float32Data[i] = (r - 127.5) / 127.5;                   // R
+            float32Data[i + width * height] = (g - 127.5) / 127.5;     // G
+            float32Data[i + 2 * width * height] = (b - 127.5) / 127.5; // B
         }
 
         const tensor = new window.ort.Tensor('float32', float32Data, [1, 3, height, width]);

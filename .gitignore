@@ -12,8 +12,11 @@ models/
 .vscode/
 
 # Frontend
+node_modules/
 H5/node_modules/
 H5/dist/
+admin-panel/node_modules/
+admin-panel/dist/
 H5/public/models/*.onnx
 H5/public/models/*.json
 H5/public/models/face_landmark_68_model-shard1
@@ -21,6 +24,10 @@ H5/public/models/face_recognition_model-shard1
 H5/public/models/face_recognition_model-shard2
 H5/public/models/tiny_face_detector_model-shard1
 
+# Config
+config.json
+
 # Misc
 *.zip
 .DS_Store
+*:Zone.Identifier

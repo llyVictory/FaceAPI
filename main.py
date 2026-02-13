@@ -9,8 +9,25 @@ import cv2
 import numpy as np
 import logging
 import sys
+import json
 from face_service import FaceService
 import database
+
+# Global configuration
+CONFIG = {
+    "similarity_threshold": 0.45
+}
+CONFIG_FILE = "config.json"
+
+def load_config():
+    global CONFIG
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
+            CONFIG.update(json.load(f))
+
+def save_config():
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(CONFIG, f, indent=2)
 
 # --- Logging Configuration ---
 logger = logging.getLogger("FaceService")
@@ -50,6 +67,9 @@ async def startup_event():
     face_service.init_model()
     logger.info("Initializing Database...")
     database.init_db()
+    logger.info("Loading Configuration...")
+    load_config()
+    logger.info(f"Similarity Threshold: {CONFIG['similarity_threshold']}")
 
 @app.get("/")
 def read_root():
@@ -140,24 +160,45 @@ async def get_feature(user_id: int):
         logger.error(f"Get Feature Error: {e}")
         return {"code": 500, "msg": str(e)}
 
-# --- Reporting API ---
+from pydantic import BaseModel
+
+class ReportModel(BaseModel):
+    user_id: int
+    score: float
+    status: str
+    address: Optional[str] = None
 
 @app.post("/api/report")
-async def report_log(
-    user_id: str = Body(...),
-    score: float = Body(...),
-    status: str = Body(...),
-    address: str = Body(None)
-):
+async def report_log(report: ReportModel):
     try:
-        # Log to DB
-        # user_id might be "1" (string) from frontend
-        database.add_log(user_id, score, status)
-        
-        logger.info(f"Report: User={user_id}, Score={score:.4f}, Status={status}, Addr={address}")
+        database.add_log(str(report.user_id), report.score, report.status)
+        logger.info(f"Report: User={report.user_id}, Score={report.score:.4f}, Status={report.status}")
         return {"code": 200, "msg": "Log saved"}
     except Exception as e:
         logger.error(f"Report Error: {e}")
+        return {"code": 500, "msg": str(e)}
+
+# --- Configuration API ---
+
+class ConfigUpdateModel(BaseModel):
+    similarity_threshold: float
+
+@app.get("/api/config")
+def get_config():
+    return {"code": 200, "data": CONFIG}
+
+@app.put("/api/config")
+async def update_config(config: ConfigUpdateModel):
+    try:
+        if not 0 <= config.similarity_threshold <= 1:
+            return {"code": 400, "msg": "Threshold must be between 0 and 1"}
+        
+        CONFIG["similarity_threshold"] = config.similarity_threshold
+        save_config()
+        logger.info(f"Updated similarity threshold to {config.similarity_threshold}")
+        return {"code": 200, "msg": "Config updated"}
+    except Exception as e:
+        logger.error(f"Update Config Error: {e}")
         return {"code": 500, "msg": str(e)}
 
 

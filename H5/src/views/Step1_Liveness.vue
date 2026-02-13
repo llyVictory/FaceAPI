@@ -233,39 +233,89 @@ const triggerSuccess = async (detection) => {
       captureCanvas.height = videoEl.videoHeight;
       captureCanvas.getContext('2d').drawImage(videoEl, 0, 0);
       
-      // 2. Extract Feature (InsightFace)
-      // We process the whole image, insightface logic crops it internally if we used a detector there,
-      // but here insightface.js's preprocess assumes we pass a cropped face or whole image?
-      // Wait, my insightface.js preprocess just resizes the WHOLE input to 112x112.
-      // This is WRONG if I pass the full webcam frame! I must crop the face first!
+      // Extract 5 key landmarks from face-api's 68 points
+      // InsightFace uses: left_eye, right_eye, nose, left_mouth, right_mouth
+      const landmarks = detection.landmarks.positions;
       
-      // Let's crop using the detection box from face-api
-      const box = detection.detection.box; // { x, y, width, height }
+      // face-api 68-point indices (approximate mapping to InsightFace 5-point):
+      // Left eye: average of points 36-41
+      // Right eye: average of points 42-47  
+      // Nose tip: point 30
+      // Left mouth corner: point 48
+      // Right mouth corner: point 54
       
-      const faceCanvas = document.createElement('canvas');
-      faceCanvas.width = 112;
-      faceCanvas.height = 112;
-      const fctx = faceCanvas.getContext('2d');
+      const leftEye = landmarks.slice(36, 42).reduce((acc, p) => ({ x: acc.x + p.x / 6, y: acc.y + p.y / 6 }), { x: 0, y: 0 });
+      const rightEye = landmarks.slice(42, 48).reduce((acc, p) => ({ x: acc.x + p.x / 6, y: acc.y + p.y / 6 }), { x: 0, y: 0 });
+      const nose = landmarks[30];
+      const leftMouth = landmarks[48];
+      const rightMouth = landmarks[54];
       
-      // Add some margin? InsightFace expects tight crop? 
-      // Usually aligns landmarks. 
-      // For this demo, let's just crop the box with slight margin.
-      const margin = 0.0; // face-api box is usually tight
-      const x = Math.max(0, box.x - box.width * margin);
-      const y = Math.max(0, box.y - box.height * margin);
-      const w = Math.min(videoEl.videoWidth - x, box.width * (1 + 2 * margin));
-      const h = Math.min(videoEl.videoHeight - y, box.height * (1 + 2 * margin));
+      const srcPoints = [
+        [leftEye.x, leftEye.y],
+        [rightEye.x, rightEye.y],
+        [nose.x, nose.y],
+        [leftMouth.x, leftMouth.y],
+        [rightMouth.x, rightMouth.y]
+      ];
       
-      fctx.drawImage(videoEl, x, y, w, h, 0, 0, 112, 112);
+      // Standard InsightFace 112x112 aligned positions (from arcface_torch)
+      const dstPoints = [
+        [38.2946, 51.6963],  // left eye
+        [73.5318, 51.5014],  // right eye
+        [56.0252, 71.7366],  // nose
+        [41.5493, 92.3655],  // left mouth
+        [70.7299, 92.2041]   // right mouth
+      ];
       
-      const currentFeature = await insightFace.extractFeature(faceCanvas);
+      // Simple affine transform (estimate using least squares)
+      // For production, use a proper library. Here's a simplified version:
+      const alignedCanvas = document.createElement('canvas');
+      alignedCanvas.width = 112;
+      alignedCanvas.height = 112;
+      const actx = alignedCanvas.getContext('2d');
       
-      // 3. Compare
+      // Calculate transform matrix (simplified similarity transform)
+      // Using only eye points for rotation and scale
+      const eyeCenter = [(leftEye.x + rightEye.x) / 2, (leftEye.y + rightEye.y) / 2];
+      const dstEyeCenter = [(38.2946 + 73.5318) / 2, (51.6963 + 51.5014) / 2];
+      
+      const dx = rightEye.x - leftEye.x;
+      const dy = rightEye.y - leftEye.y;
+      const angle = Math.atan2(dy, dx);
+      
+      const dstDx = 73.5318 - 38.2946;
+      const dstDy = 51.5014 - 51.6963;
+      const dstAngle = Math.atan2(dstDy, dstDx);
+      
+      const scale = Math.sqrt(dstDx * dstDx + dstDy * dstDy) / Math.sqrt(dx * dx + dy * dy);
+      
+      actx.translate(dstEyeCenter[0], dstEyeCenter[1]);
+      actx.rotate(dstAngle - angle);
+      actx.scale(scale, scale);
+      actx.translate(-eyeCenter[0], -eyeCenter[1]);
+      
+      actx.drawImage(videoEl, 0, 0);
+      
+      const currentFeature = await insightFace.extractFeature(alignedCanvas);
+      
+      // 3. Fetch threshold from backend
+      let threshold = 0.45; // default
+      try {
+          const configRes = await fetch('/api/config');
+          const configJson = await configRes.json();
+          if (configJson.code === 200) {
+              threshold = configJson.data.similarity_threshold;
+          }
+      } catch (e) {
+          console.warn('Failed to fetch threshold, using default 0.45');
+      }
+      
+      // 4. Compare
       const score = insightFace.cosineSimilarity(currentFeature, appState.targetFeature);
-      const isMatch = score > 0.45; // Threshold
+      const isMatch = score > threshold;
       
       instructionText.value = isMatch ? "验证通过" : "验证失败";
-      feedbackMsg.value = `相似度: ${score.toFixed(4)}`;
+      feedbackMsg.value = `相似度: ${score.toFixed(4)} (阈值: ${threshold.toFixed(2)})`;
       
       if (isMatch) {
           document.querySelector('.face-frame').classList.add('success');
@@ -274,7 +324,7 @@ const triggerSuccess = async (detection) => {
           document.querySelector('.face-frame').style.borderColor = 'red';
       }
 
-      // 4. Report
+      // 5. Report
       await fetch('/api/report', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
@@ -286,7 +336,7 @@ const triggerSuccess = async (detection) => {
           })
       });
 
-      // 5. Reset after delay
+      // 6. Reset after delay
       setTimeout(() => {
           appState.reset();
       }, 3000);
