@@ -1,0 +1,26 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+log.file
+face_attendance.db
+face_db.pkl
+attendance_log.csv
+uploads/
+models/
+.idea/
+.vscode/
+
+# Frontend
+H5/node_modules/
+H5/dist/
+H5/public/models/*.onnx
+H5/public/models/*.json
+H5/public/models/face_landmark_68_model-shard1
+H5/public/models/face_recognition_model-shard1
+H5/public/models/face_recognition_model-shard2
+H5/public/models/tiny_face_detector_model-shard1
+
+# Misc
+*.zip
+.DS_Store

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人脸考勤管理系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        /* Upload Section */
+        .upload-section {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .upload-section h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input-wrapper input[type="file"] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .file-input-label {
+            display: block;
+            padding: 12px;
+            background: white;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .file-input-label:hover {
+            background: #f0f4ff;
+            border-color: #764ba2;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        /* User List */
+        .user-list h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .user-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .user-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .user-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transform: translateY(-5px);
+        }
+
+        .user-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+            margin: 0 auto 15px;
+        }
+
+        .user-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .user-id {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 15px;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            display: none;
+            z-index: 1000;
+        }
+
+        .toast.success {
+            border-left: 4px solid #27ae60;
+        }
+
+        .toast.error {
+            border-left: 4px solid #e74c3c;
+        }
+
+        .toast.show {
+            display: block;
+            animation: slideIn 0.3s;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👤 人脸考勤管理系统</h1>
+            <p>上传照片 · 自动提取特征 · 持久化存储</p>
+        </div>
+
+        <div class="content">
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <h2>📤 添加新用户</h2>
+                <form id="uploadForm">
+                    <div class="form-group">
+                        <label>姓名</label>
+                        <input type="text" id="userName" placeholder="请输入姓名" required>
+                    </div>
+                    <div class="form-group">
+                        <label>上传照片</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="userPhoto" accept="image/*" required>
+                            <div class="file-input-label">
+                                <span id="fileName">📷 点击选择照片或拖拽到此处</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">✨ 提取特征并入库</button>
+                </form>
+            </div>
+
+            <!-- User List -->
+            <div class="user-list">
+                <h2>👥 已录入人员 (<span id="userCount">0</span>)</h2>
+                <div id="userGrid" class="user-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8070';
+
+        // Show toast notification
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // Load users
+        async function loadUsers() {
+            try {
+                const res = await fetch(`${API_BASE}/api/users`);
+                const json = await res.json();
+                if (json.code === 200) {
+                    renderUsers(json.data);
+                }
+            } catch (e) {
+                showToast('无法连接到服务器', 'error');
+            }
+        }
+
+        // Render users
+        function renderUsers(users) {
+            const grid = document.getElementById('userGrid');
+            const count = document.getElementById('userCount');
+            count.textContent = users.length;
+
+            if (users.length === 0) {
+                grid.innerHTML = '<p style="grid-column: 1/-1; text-align:center; color:#999;">暂无用户</p>';
+                return;
+            }
+
+            grid.innerHTML = users.map(user => `
+                <div class="user-card">
+                    <div class="user-avatar">${user.name.charAt(0)}</div>
+                    <div class="user-name">${user.name}</div>
+                    <div class="user-id">ID: ${user.id}</div>
+                    <button class="btn btn-danger" onclick="deleteUser(${user.id}, '${user.name}')">
+                        🗑️ 删除
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Delete user
+        async function deleteUser(id, name) {
+            if (!confirm(`确定要删除 ${name} 吗？`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/users/${id}`, { method: 'DELETE' });
+                const json = await res.json();
+                if (json.code === 200) {
+                    showToast(`已删除 ${name}`);
+                    loadUsers();
+                } else {
+                    showToast(json.msg, 'error');
+                }
+            } catch (e) {
+                showToast('删除失败', 'error');
+            }
+        }
+
+        // Upload form
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const name = document.getElementById('userName').value;
+            const file = document.getElementById('userPhoto').files[0];
+
+            if (!file) {
+                showToast('请选择照片', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('file', file);
+
+            try {
+                const res = await fetch(`${API_BASE}/api/users`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const json = await res.json();
+
+                if (json.code === 200) {
+                    showToast(`✅ ${name} 添加成功！特征已提取并入库`);
+                    document.getElementById('uploadForm').reset();
+                    document.getElementById('fileName').textContent = '📷 点击选择照片或拖拽到此处';
+                    loadUsers();
+                } else {
+                    showToast(json.msg, 'error');
+                }
+            } catch (e) {
+                showToast('上传失败，请检查服务器连接', 'error');
+            }
+        });
+
+        // File input label update
+        document.getElementById('userPhoto').addEventListener('change', (e) => {
+            const fileName = e.target.files[0]?.name || '📷 点击选择照片或拖拽到此处';
+            document.getElementById('fileName').textContent = fileName;
+        });
+
+        // Initial load
+        loadUsers();
+    </script>
+</body>
+
+</html>
