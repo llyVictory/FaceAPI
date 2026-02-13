@@ -4,10 +4,12 @@ __pycache__/
 *.pyc
 log.file
 face_attendance.db
+face_attendance.db.*
 face_db.pkl
 attendance_log.csv
 uploads/
 models/
+.env
 .idea/
 .vscode/
 

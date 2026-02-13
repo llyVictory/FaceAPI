@@ -7,3 +7,6 @@ numpy
 opencv-python-headless
 Pillow
 requests
+pymysql
+sqlalchemy
+python-dotenv
