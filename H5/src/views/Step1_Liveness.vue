@@ -20,6 +20,33 @@
 
       <!-- Feedback Toast -->
       <div v-if="feedbackMsg" class="feedback-toast">{{ feedbackMsg }}</div>
+      
+      <!-- Success Modal -->
+      <div v-if="showSuccessModal" class="success-modal-overlay" @click="closeSuccessModal">
+        <div class="success-modal" @click.stop>
+          <div class="success-icon">
+            <svg viewBox="0 0 52 52" class="checkmark">
+              <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+              <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+            </svg>
+          </div>
+          <h2 class="success-title">签到成功</h2>
+          <div class="success-info">
+            <div class="info-item">
+              <span class="label">姓名：</span>
+              <span class="value">{{ successData.userName }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">时间：</span>
+              <span class="value">{{ successData.time }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">GPS：</span>
+              <span class="value">{{ successData.gps }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Debug Display -->
       <div class="debug-ear">{{ debugKey }}: {{ debugVal }}</div>
@@ -40,6 +67,12 @@ const isSuccess = ref(false);
 const instructionText = ref("请正对屏幕，保持静止");
 const stepBadgeText = ref("活体验证"); // Default
 const feedbackMsg = ref("");
+const showSuccessModal = ref(false);
+const successData = ref({
+  userName: '',
+  time: '',
+  gps: ''
+});
 const debugKey = ref("Init");
 const debugVal = ref("--");
 let videoEl = null;
@@ -325,27 +358,84 @@ const triggerSuccess = async (detection) => {
       }
 
       // 5. Report
+      // Generate UUID
+      const uuid = crypto.randomUUID();
+      
+      // Get GPS location
+      let latitude = null;
+      let longitude = null;
+      
+      try {
+        if (navigator.geolocation) {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              timeout: 5000,
+              enableHighAccuracy: true
+            });
+          });
+          latitude = position.coords.latitude;
+          longitude = position.coords.longitude;
+          console.log(`GPS: ${latitude}, ${longitude}`);
+        }
+      } catch (gpsError) {
+        console.warn('GPS获取失败:', gpsError);
+      }
+      
       await fetch('/api/report', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
+              uuid: uuid,
               user_id: appState.currentUser.id,
               score: score,
+              threshold: threshold,
               status: isMatch ? 'PASS' : 'FAIL',
-              address: 'H5_Device'
+              latitude: latitude,
+              longitude: longitude
           })
       });
 
-      // 6. Reset after delay
-      setTimeout(() => {
+      // 6. Show success modal (only if passed)
+      if (isMatch) {
+        const now = new Date();
+        successData.value = {
+          userName: appState.currentUser.name,
+          time: now.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          }),
+          gps: latitude && longitude 
+            ? `${latitude.toFixed(6)}, ${longitude.toFixed(6)}` 
+            : '未获取'
+        };
+        showSuccessModal.value = true;
+        
+        // Auto close after 3 seconds
+        setTimeout(() => {
+          showSuccessModal.value = false;
           appState.reset();
-      }, 3000);
+        }, 3000);
+      } else {
+        // Failed - reset immediately
+        setTimeout(() => {
+          appState.reset();
+        }, 3000);
+      }
 
   } catch (e) {
       console.error(e);
       feedbackMsg.value = "比对出错: " + e.message;
       setTimeout(() => appState.reset(), 3000);
   }
+};
+
+const closeSuccessModal = () => {
+  showSuccessModal.value = false;
+  appState.reset();
 };
 
 onUnmounted(() => {
@@ -470,5 +560,140 @@ onUnmounted(() => {
   border-radius: 6px;
   font-family: monospace;
   font-size: 14px;
+}
+
+/* Success Modal Styles */
+.success-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  animation: fadeIn 0.3s;
+}
+
+.success-modal {
+  background: white;
+  border-radius: 20px;
+  padding: 40px 30px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.success-icon {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 20px;
+}
+
+.checkmark {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+  stroke-width: 3;
+  stroke: #4CAF50;
+  stroke-miterlimit: 10;
+  box-shadow: inset 0px 0px 0px #4CAF50;
+  animation: fill 0.4s ease-in-out 0.4s forwards, scale 0.3s ease-in-out 0.9s both;
+}
+
+.checkmark-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  stroke-width: 3;
+  stroke-miterlimit: 10;
+  stroke: #4CAF50;
+  fill: #4CAF50;
+  animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.checkmark-check {
+  transform-origin: 50% 50%;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  stroke: white;
+  stroke-width: 4;
+  animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+}
+
+@keyframes stroke {
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes fill {
+  100% {
+    box-shadow: inset 0px 0px 0px 50px #4CAF50;
+  }
+}
+
+@keyframes scale {
+  0%, 100% {
+    transform: none;
+  }
+  50% {
+    transform: scale3d(1.1, 1.1, 1);
+  }
+}
+
+.success-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 30px;
+}
+
+.success-info {
+  text-align: left;
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-item .label {
+  color: #666;
+  font-weight: 500;
+}
+
+.info-item .value {
+  color: #333;
+  font-weight: 600;
 }
 </style>

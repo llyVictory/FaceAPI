@@ -14,6 +14,9 @@
       
       <!-- User List -->
       <UserList ref="userListRef" />
+      
+      <!-- Attendance Logs -->
+      <AttendanceLogs />
     </div>
     
     <!-- Toast Notification -->
@@ -28,6 +31,7 @@ import { ref, reactive } from 'vue'
 import ConfigPanel from './components/ConfigPanel.vue'
 import UploadPanel from './components/UploadPanel.vue'
 import UserList from './components/UserList.vue'
+import AttendanceLogs from './components/AttendanceLogs.vue'
 
 const userListRef = ref(null)
 const toast = reactive({

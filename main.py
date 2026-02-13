@@ -163,19 +163,43 @@ async def get_feature(user_id: int):
 from pydantic import BaseModel
 
 class ReportModel(BaseModel):
+    uuid: str
     user_id: int
     score: float
+    threshold: float
     status: str
-    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 @app.post("/api/report")
 async def report_log(report: ReportModel):
     try:
-        database.add_log(str(report.user_id), report.score, report.status)
-        logger.info(f"Report: User={report.user_id}, Score={report.score:.4f}, Status={report.status}")
+        user_name = database.get_user_name(str(report.user_id))
+        database.add_log(
+            uuid=report.uuid,
+            user_id=str(report.user_id),
+            user_name=user_name,
+            score=report.score,
+            threshold=report.threshold,
+            status=report.status,
+            latitude=report.latitude,
+            longitude=report.longitude
+        )
+        logger.info(f"Report: UUID={report.uuid}, User={user_name}({report.user_id}), Score={report.score:.4f}, Status={report.status}, GPS=({report.latitude},{report.longitude})")
         return {"code": 200, "msg": "Log saved"}
     except Exception as e:
         logger.error(f"Report Error: {e}")
+        return {"code": 500, "msg": str(e)}
+
+# --- Logs API ---
+
+@app.get("/api/logs")
+def get_logs(limit: int = 100, offset: int = 0):
+    try:
+        logs = database.get_logs(limit=limit, offset=offset)
+        return {"code": 200, "data": logs}
+    except Exception as e:
+        logger.error(f"Get Logs Error: {e}")
         return {"code": 500, "msg": str(e)}
 
 # --- Configuration API ---

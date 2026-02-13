@@ -22,13 +22,18 @@ def init_db():
     )
     ''')
     
-    # Logs table
+    # Logs table with enhanced fields
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT NOT NULL UNIQUE,
         user_id TEXT NOT NULL,
+        user_name TEXT,
         score REAL,
+        threshold REAL,
         status TEXT,
+        latitude REAL,
+        longitude REAL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -86,10 +91,44 @@ def get_user_feature(user_id):
         return feature
     return None
 
-def add_log(user_id, score, status):
+def get_user_name(user_id):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO logs (user_id, score, status) VALUES (?, ?, ?)', 
-                   (user_id, score, status))
+    cursor.execute('SELECT name FROM users WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def add_log(uuid, user_id, user_name, score, threshold, status, latitude=None, longitude=None):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO logs (uuid, user_id, user_name, score, threshold, status, latitude, longitude) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (uuid, user_id, user_name, score, threshold, status, latitude, longitude))
     conn.commit()
     conn.close()
+
+def get_logs(limit=100, offset=0):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT uuid, user_id, user_name, score, threshold, status, latitude, longitude, timestamp 
+        FROM logs 
+        ORDER BY timestamp DESC 
+        LIMIT ? OFFSET ?
+    ''', (limit, offset))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [{
+        "uuid": r[0],
+        "user_id": r[1],
+        "user_name": r[2],
+        "score": r[3],
+        "threshold": r[4],
+        "status": r[5],
+        "latitude": r[6],
+        "longitude": r[7],
+        "timestamp": r[8]
+    } for r in rows]
