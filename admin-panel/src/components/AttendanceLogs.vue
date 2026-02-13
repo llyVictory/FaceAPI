@@ -12,12 +12,14 @@
             <th>相似度</th>
             <th>阈值</th>
             <th>状态</th>
-            <th>GPS坐标</th>
+            <th>纬度</th>
+            <th>经度</th>
+            <th>地图</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="logs.length === 0">
-            <td colspan="7" class="empty">暂无记录</td>
+            <td colspan="9" class="empty">暂无记录</td>
           </tr>
           <tr v-for="log in logs" :key="log.uuid" :class="{ 'pass': log.status === 'PASS', 'fail': log.status === 'FAIL' }">
             <td class="uuid">{{ log.uuid.substring(0, 8) }}...</td>
@@ -30,13 +32,21 @@
                 {{ log.status === 'PASS' ? '通过' : '失败' }}
               </span>
             </td>
-            <td class="gps">
+            <td class="gps-coord">
+              <span v-if="log.latitude">{{ log.latitude.toFixed(6) }}</span>
+              <span v-else class="no-gps">-</span>
+            </td>
+            <td class="gps-coord">
+              <span v-if="log.longitude">{{ log.longitude.toFixed(6) }}</span>
+              <span v-else class="no-gps">-</span>
+            </td>
+            <td class="gps-map">
               <span v-if="log.latitude && log.longitude">
-                <a :href="`https://www.google.com/maps?q=${log.latitude},${log.longitude}`" target="_blank">
-                  查看
+                <a :href="`https://www.google.com/maps?q=${log.latitude},${log.longitude}`" target="_blank" class="map-link">
+                  📍 查看
                 </a>
               </span>
-              <span v-else class="no-gps">未获取</span>
+              <span v-else class="no-gps">-</span>
             </td>
           </tr>
         </tbody>
@@ -210,13 +220,19 @@ td {
   color: #721c24;
 }
 
-.gps a {
+.gps-coord {
+  font-family: monospace;
+  font-size: 12px;
+  color: #666;
+}
+
+.gps-map .map-link {
   color: #667eea;
   text-decoration: none;
   font-size: 13px;
 }
 
-.gps a:hover {
+.gps-map .map-link:hover {
   text-decoration: underline;
 }
 

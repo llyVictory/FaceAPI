@@ -47,6 +47,22 @@
           </div>
         </div>
       </div>
+      
+      <!-- Failure Modal -->
+      <div v-if="showFailureModal" class="failure-modal-overlay" @click="closeFailureModal">
+        <div class="failure-modal" @click.stop>
+          <div class="failure-icon">
+            <svg viewBox="0 0 52 52" class="crossmark">
+              <circle class="crossmark-circle" cx="26" cy="26" r="25" fill="none"/>
+              <path class="crossmark-cross" fill="none" d="M16 16 l20 20 M36 16 l-20 20"/>
+            </svg>
+          </div>
+          <h2 class="failure-title">签到失败</h2>
+          <div class="failure-info">
+            <p class="failure-reason">{{ failureData.reason }}</p>
+          </div>
+        </div>
+      </div>
 
       <!-- Debug Display -->
       <div class="debug-ear">{{ debugKey }}: {{ debugVal }}</div>
@@ -65,13 +81,17 @@ const cameraRef = ref(null);
 const isFaceDetected = ref(false);
 const isSuccess = ref(false);
 const instructionText = ref("请正对屏幕，保持静止");
-const stepBadgeText = ref("活体验证"); // Default
+const stepBadgeText = ref("活体检测 0/3"); // Default
 const feedbackMsg = ref("");
 const showSuccessModal = ref(false);
 const successData = ref({
   userName: '',
   time: '',
   gps: ''
+});
+const showFailureModal = ref(false);
+const failureData = ref({
+  reason: ''
 });
 const debugKey = ref("Init");
 const debugVal = ref("--");
@@ -117,17 +137,15 @@ const nextAction = () => {
     isActionPending = false;
     isProcessingAction = false; // Unlock
     
-    // Update Badge: 1/2 or 2/2
-    // If raw queue was 2, now length is 1 -> means we are at 1st action (2-1+1=2? No)
-    // 1st call: queue has 1 left (was 2). Index = 2 - 1 = 1.
-    // 2nd call: queue has 0 left (was 1). Index = 2 - 0 = 2.
+    // Update Badge: Show current action progress (out of 3 total steps)
     const currentIndex = totalActions - actionQueue.length;
-    stepBadgeText.value = `活体验证 ${currentIndex}/${totalActions}`;
-
+    
     if (currentAction === 'blink') {
+        stepBadgeText.value = `活体检测 ${currentIndex}/3 - 眨眼`;
         instructionText.value = "请眨眨眼。建议闭眼时间大于1秒钟";
         debugKey.value = "EAR";
     } else if (currentAction === 'mouth') {
+        stepBadgeText.value = `活体检测 ${currentIndex}/3 - 张嘴`;
         instructionText.value = "请张张嘴";
         debugKey.value = "MAR";
     }
@@ -343,61 +361,31 @@ const triggerSuccess = async (detection) => {
           console.warn('Failed to fetch threshold, using default 0.45');
       }
       
+      // Show step 3: Face matching
+      stepBadgeText.value = "活体检测 3/3 - 人脸比对";
+      instructionText.value = "正在比对人脸...";
+      
       // 4. Compare
       const score = insightFace.cosineSimilarity(currentFeature, appState.targetFeature);
       const isMatch = score > threshold;
       
+      // Update step badge to show completion
+      stepBadgeText.value = isMatch ? "验证通过" : "验证失败";
       instructionText.value = isMatch ? "验证通过" : "验证失败";
       feedbackMsg.value = `相似度: ${score.toFixed(4)} (阈值: ${threshold.toFixed(2)})`;
       
       if (isMatch) {
           document.querySelector('.face-frame').classList.add('success');
       } else {
-          document.querySelector('.face-frame').classList.add('fail'); // Need css
+          document.querySelector('.face-frame').classList.add('fail');
           document.querySelector('.face-frame').style.borderColor = 'red';
       }
 
-      // 5. Report
-      // Generate UUID
-      const uuid = crypto.randomUUID();
+      // 5. 立即显示弹窗（不等待 GPS 和上报）
+      const now = new Date();
       
-      // Get GPS location
-      let latitude = null;
-      let longitude = null;
-      
-      try {
-        if (navigator.geolocation) {
-          const position = await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              timeout: 5000,
-              enableHighAccuracy: true
-            });
-          });
-          latitude = position.coords.latitude;
-          longitude = position.coords.longitude;
-          console.log(`GPS: ${latitude}, ${longitude}`);
-        }
-      } catch (gpsError) {
-        console.warn('GPS获取失败:', gpsError);
-      }
-      
-      await fetch('/api/report', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-              uuid: uuid,
-              user_id: appState.currentUser.id,
-              score: score,
-              threshold: threshold,
-              status: isMatch ? 'PASS' : 'FAIL',
-              latitude: latitude,
-              longitude: longitude
-          })
-      });
-
-      // 6. Show success modal (only if passed)
       if (isMatch) {
-        const now = new Date();
+        // 成功弹窗
         successData.value = {
           userName: appState.currentUser.name,
           time: now.toLocaleString('zh-CN', {
@@ -408,9 +396,7 @@ const triggerSuccess = async (detection) => {
             minute: '2-digit',
             second: '2-digit'
           }),
-          gps: latitude && longitude 
-            ? `${latitude.toFixed(6)}, ${longitude.toFixed(6)}` 
-            : '未获取'
+          gps: '获取中...'  // 先显示获取中
         };
         showSuccessModal.value = true;
         
@@ -420,11 +406,98 @@ const triggerSuccess = async (detection) => {
           appState.reset();
         }, 3000);
       } else {
-        // Failed - reset immediately
+        // 失败弹窗
+        failureData.value = {
+          reason: `人脸相似度 ${score.toFixed(4)} 低于阈值 ${threshold.toFixed(2)}`
+        };
+        showFailureModal.value = true;
+        
+        // Auto close after 3 seconds
         setTimeout(() => {
+          showFailureModal.value = false;
           appState.reset();
         }, 3000);
       }
+
+      // 6. 后台异步获取 GPS 和上报（不阻塞弹窗显示）
+      (async () => {
+        const uuid = crypto.randomUUID();
+        let latitude = null;
+        let longitude = null;
+        
+        console.log('🌍 开始获取 GPS...');
+        
+        try {
+          if (!navigator.geolocation) {
+            console.error('浏览器不支持 Geolocation API');
+          } else {
+            console.log('Geolocation API 可用，正在请求位置...');
+            
+            const position = await new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  console.log('GPS 获取成功:', pos);
+                  resolve(pos);
+                },
+                (err) => {
+                  console.error('GPS 获取失败:', err);
+                  console.error('错误代码:', err.code);
+                  console.error('错误信息:', err.message);
+                  reject(err);
+                },
+                {
+                  timeout: 10000,
+                  enableHighAccuracy: true,
+                  maximumAge: 0
+                }
+              );
+            });
+            
+            latitude = position.coords.latitude;
+            longitude = position.coords.longitude;
+            console.log(`GPS 坐标: ${latitude}, ${longitude}`);
+            
+            // 更新成功弹窗中的 GPS 显示（如果弹窗还在显示）
+            if (isMatch && showSuccessModal.value) {
+              successData.value.gps = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            }
+          }
+        } catch (gpsError) {
+          console.warn('GPS获取失败:', gpsError);
+          if (gpsError.code === 1) {
+            console.error('用户拒绝了位置权限');
+          } else if (gpsError.code === 2) {
+            console.error('位置信息不可用');
+          } else if (gpsError.code === 3) {
+            console.error('请求超时');
+          }
+          
+          // 更新成功弹窗中的 GPS 显示为"未获取"
+          if (isMatch && showSuccessModal.value) {
+            successData.value.gps = '未获取';
+          }
+        }
+        
+        // 上报到后端
+        try {
+          await fetch('/api/report', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              uuid: uuid,
+              user_id: appState.currentUser.id,
+              score: score,
+              threshold: threshold,
+              status: isMatch ? 'PASS' : 'FAIL',
+              latitude: latitude,
+              longitude: longitude
+            })
+          });
+          console.log('✅ 上报成功');
+        } catch (reportError) {
+          console.error('❌ 上报失败:', reportError);
+        }
+      })();
 
   } catch (e) {
       console.error(e);
@@ -435,6 +508,11 @@ const triggerSuccess = async (detection) => {
 
 const closeSuccessModal = () => {
   showSuccessModal.value = false;
+  appState.reset();
+};
+
+const closeFailureModal = () => {
+  showFailureModal.value = false;
   appState.reset();
 };
 
@@ -695,5 +773,95 @@ onUnmounted(() => {
 .info-item .value {
   color: #333;
   font-weight: 600;
+}
+
+/* Failure Modal Styles */
+.failure-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  animation: fadeIn 0.3s;
+}
+
+.failure-modal {
+  background: white;
+  border-radius: 20px;
+  padding: 40px 30px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.4s ease-out;
+}
+
+.failure-icon {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 20px;
+}
+
+.crossmark {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+  stroke-width: 3;
+  stroke: #f44336;
+  stroke-miterlimit: 10;
+  box-shadow: inset 0px 0px 0px #f44336;
+  animation: fillRed 0.4s ease-in-out 0.4s forwards, scale 0.3s ease-in-out 0.9s both;
+}
+
+.crossmark-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  stroke-width: 3;
+  stroke-miterlimit: 10;
+  stroke: #f44336;
+  fill: #f44336;
+  animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.crossmark-cross {
+  transform-origin: 50% 50%;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  stroke: white;
+  stroke-width: 4;
+  animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+}
+
+@keyframes fillRed {
+  100% {
+    box-shadow: inset 0px 0px 0px 50px #f44336;
+  }
+}
+
+.failure-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: #f44336;
+  margin-bottom: 20px;
+}
+
+.failure-info {
+  text-align: center;
+  background: #ffebee;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.failure-reason {
+  color: #c62828;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
 }
 </style>
