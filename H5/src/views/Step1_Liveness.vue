@@ -43,6 +43,12 @@
             <div class="info-item">
               <span class="label">GPS：</span>
               <span class="value">{{ successData.gps }}</span>
+              <!-- GPS 重试按钮 -->
+              <button v-if="successData.gps && !successData.gps.includes(',') && successData.gps !== '获取中...'" 
+                      class="gps-retry-btn" 
+                      @click.stop="retryGPS">
+                ↺
+              </button>
             </div>
           </div>
         </div>
@@ -65,7 +71,24 @@
       </div>
 
       <!-- Debug Display -->
-      <div class="debug-ear">{{ debugKey }}: {{ debugVal }}</div>
+      <div class="debug-ear" @click="showLogs = !showLogs">{{ debugKey }}: {{ debugVal }}</div>
+
+      <!-- On-screen Logger (Hidden by default) -->
+      <div v-if="showLogs" class="screen-logger">
+        <div class="logger-header">
+          <span>📱 终端日志</span>
+          <div class="logger-ctrl">
+            <button @click="screenLogs = []">清空</button>
+            <button @click="showLogs = false">关闭</button>
+          </div>
+        </div>
+        <div class="logger-content" ref="logContainer">
+          <div v-for="(log, i) in screenLogs" :key="i" :class="['log-line', log.type]">
+            <span class="log-time">{{ log.time }}</span>
+            <span class="log-msg">{{ log.msg }}</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -95,6 +118,56 @@ const failureData = ref({
 });
 const debugKey = ref("Init");
 const debugVal = ref("--");
+
+// --- 屏幕日志功能 ---
+const showLogs = ref(false); // 默认开启日志
+const screenLogs = ref([]);
+const logContainer = ref(null);
+
+// 缺失的 Camera 回调
+
+const addScreenLog = (type, args) => {
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const msg = args.map(arg => {
+    try {
+      return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+    } catch (e) {
+      return '[Circular]';
+    }
+  }).join(' ');
+  
+  screenLogs.value.push({ type, time, msg });
+  
+  // 最多保留 50 条
+  if (screenLogs.value.length > 50) screenLogs.value.shift();
+};
+
+// 劫持 console
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+
+console.log = (...args) => {
+  originalLog(...args);
+  addScreenLog('info', args);
+};
+
+console.warn = (...args) => {
+  originalWarn(...args);
+  addScreenLog('warn', args);
+};
+
+console.error = (...args) => {
+  originalError(...args);
+  addScreenLog('error', args);
+};
+const onCameraError = (err) => {
+  console.error("摄像头启动失败:", err);
+  feedbackMsg.value = "无法启动摄像头: " + err.message;
+};
+
+// ----------------
+
 let videoEl = null;
 let canvasEl = null;
 let loopId = null;
@@ -425,7 +498,7 @@ const triggerSuccess = async (detection) => {
         let latitude = null;
         let longitude = null;
         
-        console.log('🌍 开始获取 GPS...');
+        console.log('开始获取 GPS...');
         
         try {
           if (!navigator.geolocation) {
@@ -433,29 +506,27 @@ const triggerSuccess = async (detection) => {
           } else {
             console.log('Geolocation API 可用，正在请求位置...');
             
-            const position = await new Promise((resolve, reject) => {
-              navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                  console.log('GPS 获取成功:', pos);
-                  resolve(pos);
-                },
-                (err) => {
-                  console.error('GPS 获取失败:', err);
-                  console.error('错误代码:', err.code);
-                  console.error('错误信息:', err.message);
-                  reject(err);
-                },
-                {
-                  timeout: 10000,
-                  enableHighAccuracy: true,
-                  maximumAge: 0
-                }
-              );
+            // 定义获取位置的辅助函数
+            const getPosition = (options) => {
+              return new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, options);
+              });
+            };
+
+            let position;
+            // 移除降级逻辑，直接请求高精度
+            console.log('正在获取高精度 GPS...');
+            
+            // 直接尝试获取高精度 (超10秒)
+            position = await getPosition({
+              timeout: 10000,
+              enableHighAccuracy: true,
+              maximumAge: 0
             });
             
             latitude = position.coords.latitude;
             longitude = position.coords.longitude;
-            console.log(`GPS 坐标: ${latitude}, ${longitude}`);
+            console.log(`GPS 坐标获取成功: ${latitude}, ${longitude} (精度: ${position.coords.accuracy}米)`);
             
             // 更新成功弹窗中的 GPS 显示（如果弹窗还在显示）
             if (isMatch && showSuccessModal.value) {
@@ -463,18 +534,26 @@ const triggerSuccess = async (detection) => {
             }
           }
         } catch (gpsError) {
-          console.warn('GPS获取失败:', gpsError);
+          console.warn('GPS获取最终失败:', gpsError);
+          let errorMsg = '未获取';
+          
           if (gpsError.code === 1) {
             console.error('用户拒绝了位置权限');
+            errorMsg = '权限被拒绝';
           } else if (gpsError.code === 2) {
             console.error('位置信息不可用');
+            errorMsg = '信号弱';
           } else if (gpsError.code === 3) {
             console.error('请求超时');
+            errorMsg = '超时';
+          } else if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+             console.error('非 HTTPS 环境无法获取 GPS');
+             errorMsg = '需HTTPS'; 
           }
           
-          // 更新成功弹窗中的 GPS 显示为"未获取"
+          // 更新成功弹窗中的 GPS 显示为错误信息
           if (isMatch && showSuccessModal.value) {
-            successData.value.gps = '未获取';
+            successData.value.gps = errorMsg;
           }
         }
         
@@ -493,9 +572,9 @@ const triggerSuccess = async (detection) => {
               longitude: longitude
             })
           });
-          console.log('✅ 上报成功');
+          console.log('上报成功');
         } catch (reportError) {
-          console.error('❌ 上报失败:', reportError);
+          console.error('上报失败:', reportError);
         }
       })();
 
@@ -509,6 +588,41 @@ const triggerSuccess = async (detection) => {
 const closeSuccessModal = () => {
   showSuccessModal.value = false;
   appState.reset();
+};
+
+const retryGPS = () => {
+  console.log('手动重试获取 GPS...');
+  console.log('Secure Context:', window.isSecureContext);
+  
+  if (!navigator.geolocation) {
+    alert('浏览器不支持 GPS');
+    return;
+  }
+  
+  successData.value.gps = '获取中...';
+  
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude.toFixed(6);
+      const lng = pos.coords.longitude.toFixed(6);
+      console.log(`重试成功: ${lat}, ${lng}`);
+      successData.value.gps = `${lat}, ${lng}`;
+      
+      // 补发上报? 其实这里只要能在界面显示出来就行，证明是权限问题
+      // 实际生产中应该调用 updateReport 接口
+    },
+    (err) => {
+      console.error('❌ 重试失败:', err.message, err.code);
+      let msg = '重试失败';
+      if (err.code === 1) msg = '权限被拒绝(系统设置)';
+      else if (err.code === 2) msg = '信号弱';
+      else if (err.code === 3) msg = '超时';
+      successData.value.gps = msg;
+      
+      alert(`无法获取位置: ${msg}\n请检查 设置 -> 隐私 -> 定位服务 -> Safari网站`);
+    },
+    { enableHighAccuracy: true, timeout: 5000 }
+  );
 };
 
 const closeFailureModal = () => {
@@ -638,6 +752,9 @@ onUnmounted(() => {
   border-radius: 6px;
   font-family: monospace;
   font-size: 14px;
+  pointer-events: auto; /* ✅ 关键修复：允许点击 */
+  z-index: 100;         /* ✅ 提高层级 */
+  cursor: pointer;
 }
 
 /* Success Modal Styles */
@@ -864,4 +981,72 @@ onUnmounted(() => {
   line-height: 1.6;
   margin: 0;
 }
+
+.gps-retry-btn {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  cursor: pointer;
+  padding: 0;
+  font-size: 16px;
+  vertical-align: middle;
+}
+
+/* Screen Logger */
+.screen-logger {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 60%; /* 增加高度 */
+  background: rgba(0, 0, 0, 0.95);
+  color: #0f0;
+  font-family: monospace;
+  font-size: 11px; /* 稍微大一点 */
+  z-index: 10000;
+  border-bottom: 2px solid #0f0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto; /* ✅ 关键修复：允许交互 */
+  touch-action: pan-y;  /* ✅ 允许垂直滚动 */
+}
+
+.logger-header {
+  padding: 5px 10px;
+  background: #222;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #444;
+}
+
+.logger-ctrl button {
+  background: #444;
+  color: white;
+  border: none;
+  padding: 2px 8px;
+  margin-left: 5px;
+  border-radius: 4px;
+}
+
+.logger-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.log-line {
+  margin-bottom: 4px;
+  word-break: break-all;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 2px;
+}
+
+.log-line.warn { color: yellow; }
+.log-line.error { color: #f44336; background: rgba(244, 67, 54, 0.1); }
+.log-line .log-time { color: #666; margin-right: 5px; }
+
 </style>
