@@ -2,19 +2,21 @@
 const waitForGlobalApi = () => {
     return new Promise((resolve, reject) => {
         if (window.faceapi) {
+            console.log("face-api.js 已加载");
             return resolve(window.faceapi);
         }
 
-        console.log("Waiting for face-api.js to load...");
+        console.log("等待 face-api.js 加载...");
         let attempts = 0;
         const interval = setInterval(() => {
             attempts++;
             if (window.faceapi) {
                 clearInterval(interval);
-                console.log("face-api.js loaded!");
+                console.log("face-api.js 加载成功！");
                 resolve(window.faceapi);
             } else if (attempts > 50) { // Wait 5 seconds max
                 clearInterval(interval);
+                console.error("face-api.js 加载超时");
                 reject(new Error("Timeout waiting for face-api.js"));
             }
         }, 100);

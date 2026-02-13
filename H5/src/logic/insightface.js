@@ -5,7 +5,13 @@
 export class InsightFaceEngine {
     constructor() {
         this.session = null;
-        this.inputSize = [112, 112]; // MobileFaceNet/ArcFace input size
+        this.inputSize = [112, 112];
+
+        // 尽早初始化全局配置
+        if (window.ort) {
+            window.ort.env.wasm.numThreads = 1;
+            window.ort.env.wasm.proxy = false;
+        }
     }
 
     async loadModel(modelUrl) {
@@ -14,17 +20,47 @@ export class InsightFaceEngine {
                 throw new Error("onnxruntime-web not loaded");
             }
 
-            // Set wasm paths if needed, usually CDN handles it or local
-            // ort.env.wasm.wasmPaths = '...'; 
+            const ort = window.ort;
+            console.log("Using global ORT config:", ort.env.wasm);
 
-            this.session = await window.ort.InferenceSession.create(modelUrl, {
+            this.session = await ort.InferenceSession.create(modelUrl, {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all'
             });
-            console.log("InsightFace model loaded:", modelUrl);
+
+            console.log("✅ InsightFace 模型加载成功:", modelUrl);
         } catch (e) {
-            console.error("Failed to load InsightFace model", e);
+            console.error("❌ InsightFace 模型加载失败:", e);
             throw e;
+        }
+    }
+
+    // 检测 WebAssembly SIMD 支持
+    async detectSimdSupport() {
+        try {
+            // 检测方法 1：直接检测 WebAssembly.validate
+            if (typeof WebAssembly !== 'undefined' && WebAssembly.validate) {
+                // SIMD 测试字节码
+                const simdTest = new Uint8Array([
+                    0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3,
+                    2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11
+                ]);
+                return WebAssembly.validate(simdTest);
+            }
+
+            // 检测方法 2：User Agent 检测（iOS Safari）
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+            if (isIOS && isSafari) {
+                console.log('检测到 iOS Safari，禁用 SIMD');
+                return false;
+            }
+
+            return true;
+        } catch (e) {
+            console.warn('SIMD 检测失败，默认禁用:', e);
+            return false;
         }
     }
 

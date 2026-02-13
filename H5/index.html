@@ -13,7 +13,43 @@
 
 <body>
   <div id="app"></div>
-  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <!-- iOS Safari Compatibility Fix for Atomics -->
+  <script>
+    if (typeof Atomics === 'undefined') {
+      window.Atomics = {
+        add: () => { }, sub: () => { }, and: () => { }, or: () => { }, xor: () => { },
+        exchange: () => { }, compareExchange: () => { }, isLockFree: () => { },
+        load: () => { }, store: () => { }, wait: () => { }, notify: () => { }
+      };
+      console.log('Injected Atomics Polyfill for iOS compatibility');
+    }
+    // 注意：不要模拟 SharedArrayBuffer，否则 ORT 会尝试加载多线程 WASM 导致编译失败
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js"></script>
+  <script>
+    // iOS Safari 终极兼容性补丁
+    if (window.ort) {
+      console.log('应用 iOS 兼容性强制配置...');
+
+      // 1. 强制单线程配置
+      window.ort.env.wasm.numThreads = 1;
+      window.ort.env.wasm.proxy = false;
+      window.ort.env.wasm.simd = false;
+
+      // 2. 劫持 WASM 下载路径
+      // 无论 ORT 想要什么样的 WASM（多线程/SIMD），都给它塞这个最基础的单线程版
+      const SINGLE_THREAD_WASM_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort-wasm.wasm';
+
+      window.ort.env.wasm.wasmPaths = {
+        'ort-wasm.wasm': SINGLE_THREAD_WASM_URL,
+        'ort-wasm-simd.wasm': SINGLE_THREAD_WASM_URL,
+        'ort-wasm-threaded.wasm': SINGLE_THREAD_WASM_URL,
+        'ort-wasm-simd-threaded.wasm': SINGLE_THREAD_WASM_URL
+      };
+
+      console.log('WASM 路径已全部重定向至单线程版本');
+    }
+  </script>
   <script src="/js/face-api.min.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>
