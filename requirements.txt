@@ -10,3 +10,4 @@ requests
 pymysql
 sqlalchemy
 python-dotenv
+cryptography
