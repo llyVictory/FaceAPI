@@ -517,11 +517,11 @@ const triggerSuccess = async (detection) => {
             // 移除降级逻辑，直接请求高精度
             console.log('正在获取高精度 GPS...');
             
-            // 直接尝试获取高精度 (超10秒)
+            // 直接尝试获取高精度 (超时延长至 20s，允许 3s 内的缓存)
             position = await getPosition({
-              timeout: 10000,
+              timeout: 20000,
               enableHighAccuracy: true,
-              maximumAge: 0
+              maximumAge: 3000
             });
             
             latitude = position.coords.latitude;
@@ -621,7 +621,7 @@ const retryGPS = () => {
       
       alert(`无法获取位置: ${msg}\n请检查 设置 -> 隐私 -> 定位服务 -> Safari网站`);
     },
-    { enableHighAccuracy: true, timeout: 5000 }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
   );
 };
 
