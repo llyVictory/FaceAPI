@@ -1,0 +1,102 @@
+import os
+import cv2
+import numpy as np
+import urllib.request
+import traceback
+import warnings
+import time
+import database
+from face_service import FaceService
+from common import setup_logger, load_config
+
+# Suppress Deprecation/Future warnings from third-party libraries (especially insightface/skimage)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# Initialize Logger
+logger = setup_logger("Batch_Feature_Generator")
+
+def run_batch_generation():
+    """Standalone script to batch generate face features and save to DB"""
+    logger.info("="*50)
+    logger.info("开始执行人脸特征批量生成脚本")
+    logger.info("="*50)
+    
+    # Initialize services
+    face_service = FaceService()
+    try:
+        logger.info("正在初始化人脸识别模型...")
+        face_service.init_model()
+        logger.info("模型初始化完成。")
+        
+        database.init_db()
+        logger.info("数据库连接已就绪。")
+    except Exception as e:
+        logger.error(f"初始化失败: {str(e)}")
+        return
+
+    # Statistics
+    stats = {
+        "total": 0,
+        "success": 0,
+        "failed": 0
+    }
+
+    try:
+        logger.info("正在从源表获取待处理数据...")
+        users = database.get_source_faces()
+        stats["total"] = len(users)
+        
+        if stats["total"] == 0:
+            logger.info("源表中没有待处理的数据。")
+            return
+
+        logger.info(f"拉取成功，共需处理 {stats['total']} 条记录。")
+        
+        for index, user in enumerate(users):
+            yhbh = user.get("yhbh", "未知")
+            url = user.get("face_url", "")
+            
+            logger.info(f"[{index+1}/{stats['total']}] 正在处理学号: {yhbh}")
+            
+            try:
+                # 1. Download image
+                if not url:
+                    raise Exception("URL为空")
+                    
+                logger.debug(f"正在重新下载图片 -> {url}")
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                resp = urllib.request.urlopen(req, timeout=10)
+                image_bytes = resp.read()
+                
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                if img is None:
+                    raise Exception("无法解析图片（格式错误或内容为空）")
+                
+                # 2. Extract feature
+                feature = face_service.get_feature(img)
+                if feature is None:
+                    raise Exception("图片中未检测到有效人脸")
+                
+                # 3. Save to database
+                database.save_target_feature(user_id=yhbh, feature=feature, threshold=0.45)
+                
+                stats["success"] += 1
+                logger.info(f"   [成功] 学号: {yhbh} 特征已保存")
+                
+            except Exception as e:
+                stats["failed"] += 1
+                logger.error(f"   [失败] 学号: {yhbh} -> {str(e)}")
+
+    except Exception as e:
+        logger.error(f"批量处理过程中遇到严重错误: {traceback.format_exc()}")
+    
+    finally:
+        logger.info("="*50)
+        logger.info("批量任务执行完毕。")
+        logger.info(f"统计概览 - 总数: {stats['total']}, 成功: {stats['success']}, 失败: {stats['failed']}")
+        logger.info("="*50)
+
+if __name__ == "__main__":
+    run_batch_generation()

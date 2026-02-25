@@ -1,0 +1,8 @@
+insightface
+onnxruntime
+numpy
+opencv-python-headless
+pymysql
+sqlalchemy
+python-dotenv
+cryptography
