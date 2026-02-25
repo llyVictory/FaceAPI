@@ -176,10 +176,22 @@ def get_logs(limit=100, offset=0):
 from sqlalchemy import text
 
 def get_source_faces():
-    """Retrieve all users and their face URLs from the source table."""
+    """
+    Retrieve users and their face URLs from the source table.
+    Optimization: Only select users who do NOT exist in the target table (incremental update).
+    """
     session = SessionLocal()
     try:
-        query = text(f"SELECT yhbh, face_url FROM {TABLE_SOURCE} WHERE face_url IS NOT NULL AND face_url != ''")
+        # Use a LEFT JOIN to find users missing in the target feature table
+        sql = f"""
+            SELECT s.yhbh, s.face_url 
+            FROM {TABLE_SOURCE} s
+            LEFT JOIN {TABLE_TARGET} t ON s.yhbh = t.user_id
+            WHERE s.face_url IS NOT NULL 
+              AND s.face_url != ''
+              AND t.user_id IS NULL
+        """
+        query = text(sql)
         result = session.execute(query).fetchall()
         return [{"yhbh": row[0], "face_url": row[1]} for row in result]
     finally:
