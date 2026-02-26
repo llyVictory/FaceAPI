@@ -60,13 +60,17 @@ def run_batch_generation():
             
             try:
                 # 1. Download image
+                image_bytes = None
                 if not url:
                     raise Exception("URL为空")
                     
                 logger.debug(f"正在重新下载图片 -> {url}")
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                resp = urllib.request.urlopen(req, timeout=10)
-                image_bytes = resp.read()
+                try:
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    image_bytes = resp.read()
+                except Exception as download_err:
+                    raise Exception(f"下载失败: {str(download_err)}")
                 
                 nparr = np.frombuffer(image_bytes, np.uint8)
                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -75,7 +79,9 @@ def run_batch_generation():
                     raise Exception("无法解析图片（格式错误或内容为空）")
                 
                 # 2. Extract feature
-                feature = face_service.get_feature(img)
+                feature, score = face_service.get_feature(img)
+                logger.info(f"   [检测结果] 置信度得分: {score:.4f}")
+                
                 if feature is None:
                     raise Exception("图片中未检测到有效人脸")
                 
@@ -87,7 +93,33 @@ def run_batch_generation():
                 
             except Exception as e:
                 stats["failed"] += 1
-                logger.error(f"   [失败] 学号: {yhbh} -> {str(e)}")
+                error_msg = str(e)
+                logger.error(f"   [失败] 学号: {yhbh} -> {error_msg}")
+                
+                # 保存失败的照片以便人工核查
+                try:
+                    fail_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_batch", "fail")
+                    if not os.path.exists(fail_dir):
+                        os.makedirs(fail_dir)
+                    
+                    if image_bytes:
+                        # 尝试从 URL 推断后缀名
+                        ext = ".jpg"
+                        try:
+                            potential_ext = os.path.splitext(url.split('?')[0])[1].lower()
+                            if potential_ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                                ext = potential_ext
+                        except:
+                            pass
+                        
+                        fail_path = os.path.join(fail_dir, f"{yhbh}{ext}")
+                        with open(fail_path, "wb") as f:
+                            f.write(image_bytes)
+                        logger.warning(f"   [已存证] 失败照片已保存至: output_batch/fail/{yhbh}{ext}")
+                    else:
+                        logger.warning(f"   [跳过保存] 无法保存照片，因为下载已失败且未获取到内容")
+                except Exception as save_err:
+                    logger.error(f"   [警告] 无法保存失败照片: {str(save_err)}")
 
     except Exception as e:
         logger.error(f"批量处理过程中遇到严重错误: {traceback.format_exc()}")

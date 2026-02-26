@@ -9,6 +9,9 @@ face_db.pkl
 attendance_log.csv
 uploads/
 models/
+generate_feature_blob/input/
+generate_feature_blob/output/
+generate_feature_blob/output_batch/
 .env
 .idea/
 .vscode/
