@@ -27,29 +27,46 @@ class FaceService:
         self.app = FaceAnalysis(name='buffalo_sc', root=model_root, providers=['CPUExecutionProvider'])
         self.app.prepare(ctx_id=0, det_size=(det_size, det_size), det_thresh=det_thresh)
 
-    def get_feature(self, img_numpy):
-        """
-        Returns (embedding, score) of the largest face
-        """
+    def _extract(self, img_numpy, padding_ratio=0.0):
+        """内部特征提取逻辑，支持自定义补边比例"""
         if self.app is None:
             raise Exception("Model not initialized")
             
         import cv2
-        # 自动补边 (Auto Padding): 为防止人脸太靠近边缘导致识别率下降，根据配置增加黑边
-        h, w = img_numpy.shape[:2]
-        padding = int(max(h, w) * self.det_padding)
-        top = bottom = left = right = padding
-        img_padded = cv2.copyMakeBorder(img_numpy, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        if padding_ratio > 0:
+            h, w = img_numpy.shape[:2]
+            padding = int(max(h, w) * padding_ratio)
+            img_input = cv2.copyMakeBorder(img_numpy, padding, padding, padding, padding, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        else:
+            img_input = img_numpy
 
-        faces = self.app.get(img_padded)
+        faces = self.app.get(img_input)
         if len(faces) == 0:
             return None, 0.0
             
-        # Sort by area (h*w)
+        # 按面积排序取最大脸
         faces = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0]) * (x.bbox[3]-x.bbox[1]), reverse=True)
         return faces[0].embedding, faces[0].det_score
 
-    def draw_faces(self, img_numpy):
+    def get_feature(self, img_numpy):
+        """
+        降级提取逻辑:
+        1. 默认不启用补边，直接拿原照片
+        2. 若提取失败，尝试 15% DET_PADDING
+        3. 若仍失败，尝试 30% DET_PADDING
+        Returns (embedding, score, used_padding_ratio)
+        """
+        # 尝试不同级别的补边
+        fallbacks = [0.0, 0.15, 0.30]
+        
+        for p in fallbacks:
+            feature, score = self._extract(img_numpy, padding_ratio=p)
+            if feature is not None:
+                return feature, score, p
+                
+        return None, 0.0, None
+
+    def draw_faces(self, img_numpy, padding_ratio=0.0):
         """
         用于诊断：在图片上画出当前模型能看到的所有人脸
         """
@@ -57,16 +74,16 @@ class FaceService:
         if self.app is None:
             return img_numpy
             
-        import cv2
-        # 同步增加自动补边的诊断显示
-        h, w = img_numpy.shape[:2]
-        padding = int(max(h, w) * self.det_padding)
-        top = bottom = left = right = padding
-        img_padded = cv2.copyMakeBorder(img_numpy, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        if padding_ratio > 0:
+            h, w = img_numpy.shape[:2]
+            padding = int(max(h, w) * padding_ratio)
+            img_input = cv2.copyMakeBorder(img_numpy, padding, padding, padding, padding, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        else:
+            img_input = img_numpy
 
-        faces = self.app.get(img_padded)
-        print(f"      [诊断调试] 模型检测到 {len(faces)} 个疑似人脸目标 (边缘增强系数: {self.det_padding})")
-        out_img = img_padded.copy()
+        faces = self.app.get(img_input)
+        print(f"      [诊断调试] 检测到 {len(faces)} 个疑似目标 (补边比例: {padding_ratio:.2%})")
+        out_img = img_input.copy()
         
         for i, face in enumerate(faces):
             box = face.bbox.astype(int)

@@ -47,25 +47,37 @@ def process_single_photo(user_id, image_path, move_after=False):
         if img is None:
             raise Exception("无法解析图片（格式错误或路径非法）")
             
-        feature, score = face_service.get_feature(img)
-        logger.info(f"   [检测结果] 置信度得分: {score:.4f}")
+        feature, score, padding = face_service.get_feature(img)
+        logger.info(f"   [检测结果] 置信度得分: {score:.4f} (最终补边比例: {padding:.2%})")
         
         if feature is None:
-            raise Exception("图片中未检测到有效人脸")
+            raise Exception("图片中尝试所有补边方案后均未检测到有效人脸")
             
         database.save_target_feature(user_id=user_id, feature=feature, threshold=0.45)
         logger.info(f"✅ 成功: 学号 {user_id} 录入完成。")
         
         if move_after:
+            # 根据 padding 决定分类子文件夹
+            if padding == 0.0:
+                sub_dir = "original"
+            elif padding == 0.15:
+                sub_dir = "padding_15"
+            else:
+                sub_dir = "padding_30"
+            
+            target_dir = os.path.join(SUCCESS_DIR, sub_dir)
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir)
+
             # 生成带红框和置信度的可视化图片
-            vis_img = face_service.draw_faces(img)
-            target = os.path.join(SUCCESS_DIR, file_name)
+            vis_img = face_service.draw_faces(img, padding_ratio=padding)
+            target = os.path.join(target_dir, file_name)
             cv2.imwrite(target, vis_img)
             
             # 删除原始文件
             if os.path.exists(image_path):
                 os.remove(image_path)
-            logger.info(f"   [已归档] 可视化结果已保存至 output/success")
+            logger.info(f"   [已归档] 可视化结果已保存至 output/success/{sub_dir}")
         return True
 
     except Exception as e:
@@ -73,14 +85,12 @@ def process_single_photo(user_id, image_path, move_after=False):
         if move_after:
             # 诊断逻辑：保存一份可视化检测图
             try:
-                # 为了诊断，我们需要重新初始化一个极低阈值的 service
-                diagnostic_service = FaceService()
-                diagnostic_service.init_model(det_thresh=0.1) # 诊断时强制极低阈值
-                debug_img = diagnostic_service.draw_faces(img) 
-                debug_file_name = f"DEBUG_{user_id}.jpg"
-                debug_path = os.path.join(DEBUG_DIR, debug_file_name)
-                cv2.imwrite(debug_path, debug_img)
-                logger.warning(f"   [诊断完成] 已生成调试图片查看检测细节: output/debug/{debug_file_name}")
+                # 诊断时尝试各种补边看看哪一步最接近
+                for p in [0.0, 0.15, 0.30]:
+                    diag_img = face_service.draw_faces(img, padding_ratio=p)
+                    debug_file_name = f"DEBUG_{user_id}_p{int(p*100)}.jpg"
+                    cv2.imwrite(os.path.join(DEBUG_DIR, debug_file_name), diag_img)
+                logger.warning(f"   [诊断完成] 已生成各级补边的调试图片至 output/debug")
             except Exception as diag_err:
                 logger.debug(f"诊断失败: {str(diag_err)}")
 

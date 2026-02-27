@@ -79,11 +79,11 @@ def run_batch_generation():
                     raise Exception("无法解析图片（格式错误或内容为空）")
                 
                 # 2. Extract feature
-                feature, score = face_service.get_feature(img)
-                logger.info(f"   [检测结果] 置信度得分: {score:.4f}")
+                feature, score, padding = face_service.get_feature(img)
+                logger.info(f"   [检测结果] 置信度得分: {score:.4f} (补边比例: {padding:.2%})")
                 
                 if feature is None:
-                    raise Exception("图片中未检测到有效人脸")
+                    raise Exception("图片中尝试所有补边方案后均未检测到有效人脸")
                 
                 # 3. Save to database
                 database.save_target_feature(user_id=yhbh, feature=feature, threshold=0.45)
