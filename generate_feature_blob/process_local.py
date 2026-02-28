@@ -2,7 +2,7 @@ import os
 import cv2
 import argparse
 import shutil
-import traceback
+import time
 import database
 from face_service import FaceService
 from common import setup_logger
@@ -42,6 +42,8 @@ def process_single_photo(user_id, image_path, move_after=False):
         return False
 
     file_name = os.path.basename(image_path)
+    time_suffix = time.strftime("%m%d%H%M")
+    
     try:
         img = cv2.imread(image_path)
         if img is None:
@@ -59,12 +61,13 @@ def process_single_photo(user_id, image_path, move_after=False):
         if move_after:
             # 根据 padding 决定分类子文件夹
             if padding == 0.0:
-                sub_dir = "original"
+                base_dir = "original"
             elif padding == 0.15:
-                sub_dir = "padding_15"
+                base_dir = "padding_15"
             else:
-                sub_dir = "padding_30"
+                base_dir = "padding_30"
             
+            sub_dir = f"{base_dir}_{time_suffix}"
             target_dir = os.path.join(SUCCESS_DIR, sub_dir)
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
@@ -86,17 +89,25 @@ def process_single_photo(user_id, image_path, move_after=False):
             # 诊断逻辑：保存一份可视化检测图
             try:
                 # 诊断时尝试各种补边看看哪一步最接近
+                diag_base_dir = os.path.join(DEBUG_DIR, f"debug_{time_suffix}")
+                if not os.path.exists(diag_base_dir):
+                    os.makedirs(diag_base_dir)
+                    
                 for p in [0.0, 0.15, 0.30]:
                     diag_img = face_service.draw_faces(img, padding_ratio=p)
                     debug_file_name = f"DEBUG_{user_id}_p{int(p*100)}.jpg"
-                    cv2.imwrite(os.path.join(DEBUG_DIR, debug_file_name), diag_img)
-                logger.warning(f"   [诊断完成] 已生成各级补边的调试图片至 output/debug")
+                    cv2.imwrite(os.path.join(diag_base_dir, debug_file_name), diag_img)
+                logger.warning(f"   [诊断完成] 已生成各级补边的调试图片至 output/debug/debug_{time_suffix}")
             except Exception as diag_err:
                 logger.debug(f"诊断失败: {str(diag_err)}")
 
-            target = os.path.join(FAIL_DIR, file_name)
+            fail_sub_dir = os.path.join(FAIL_DIR, f"fail_{time_suffix}")
+            if not os.path.exists(fail_sub_dir):
+                os.makedirs(fail_sub_dir)
+                
+            target = os.path.join(fail_sub_dir, file_name)
             shutil.move(image_path, target)
-            logger.info(f"   [已归档] 原始文件已移动至 output/fail")
+            logger.info(f"   [已归档] 原始文件已移动至 output/fail/fail_{time_suffix}")
         return False
 
 def interactive_mode():

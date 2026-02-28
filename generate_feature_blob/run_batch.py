@@ -21,6 +21,9 @@ def run_batch_generation():
     logger.info("开始执行人脸特征批量生成脚本")
     logger.info("="*50)
     
+    # 获取当前时间后缀 (月日时分)
+    time_suffix = time.strftime("%m%d%H%M")
+    
     # Initialize services
     face_service = FaceService()
     try:
@@ -90,6 +93,23 @@ def run_batch_generation():
                 
                 stats["success"] += 1
                 logger.info(f"   [成功] 学号: {yhbh} 特征已保存")
+
+                # 4. 可视化保存逻辑 (仅保存 15% 和 30% 补边的情况用于 debug)
+                if padding > 0:
+                    try:
+                        base_name = "padding_15" if padding == 0.15 else "padding_30"
+                        sub_dir = f"{base_name}_{time_suffix}"
+                        success_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_batch", "success", sub_dir)
+                        if not os.path.exists(success_dir):
+                            os.makedirs(success_dir)
+                        
+                        # 调用 face_service 生成带红框和置信度的图
+                        vis_img = face_service.draw_faces(img, padding_ratio=padding)
+                        save_path = os.path.join(success_dir, f"{yhbh}.jpg")
+                        cv2.imwrite(save_path, vis_img)
+                        logger.info(f"   [已存证] 补边可视化结果已保存至: output_batch/success/{sub_dir}/{yhbh}.jpg")
+                    except Exception as vis_err:
+                        logger.warning(f"   [警告] 无法保存可视化图片: {str(vis_err)}")
                 
             except Exception as e:
                 stats["failed"] += 1
@@ -98,7 +118,7 @@ def run_batch_generation():
                 
                 # 保存失败的照片以便人工核查
                 try:
-                    fail_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_batch", "fail")
+                    fail_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_batch", "fail", f"fail_{time_suffix}")
                     if not os.path.exists(fail_dir):
                         os.makedirs(fail_dir)
                     
@@ -115,7 +135,7 @@ def run_batch_generation():
                         fail_path = os.path.join(fail_dir, f"{yhbh}{ext}")
                         with open(fail_path, "wb") as f:
                             f.write(image_bytes)
-                        logger.warning(f"   [已存证] 失败照片已保存至: output_batch/fail/{yhbh}{ext}")
+                        logger.warning(f"   [已存证] 失败照片已保存至: output_batch/fail/fail_{time_suffix}/{yhbh}{ext}")
                     else:
                         logger.warning(f"   [跳过保存] 无法保存照片，因为下载已失败且未获取到内容")
                 except Exception as save_err:
