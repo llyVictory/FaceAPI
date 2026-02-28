@@ -10,18 +10,13 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 class FaceService:
     def __init__(self):
         self.app = None
-        self.det_padding = 0.15
         
-    def init_model(self, det_thresh=None, det_size=None, det_padding=None):
+    def init_model(self, det_thresh=None, det_size=None):
         # 从环境变量读取配置
         if det_thresh is None:
-            det_thresh = float(os.getenv('DET_THRESH', '0.2'))
+            det_thresh = float(os.getenv('DET_THRESH', '0.5'))
         if det_size is None:
             det_size = int(os.getenv('DET_SIZE', '640'))
-        if det_padding is None:
-            self.det_padding = float(os.getenv('DET_PADDING', '0.15'))
-        else:
-            self.det_padding = det_padding
             
         model_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
         self.app = FaceAnalysis(name='buffalo_sc', root=model_root, providers=['CPUExecutionProvider'])
