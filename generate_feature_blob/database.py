@@ -226,3 +226,19 @@ def save_target_feature(user_id, feature, threshold=0.45):
     finally:
         session.close()
 
+def update_source_face_url(yhbh: str, face_url: str):
+    """
+    Update face_url in the source table (local database).
+    """
+    session = SessionLocal()
+    try:
+        # Executing raw SQL update to cover the local record's face_url
+        query = text(f"UPDATE {TABLE_SOURCE} SET face_url = :face_url WHERE yhbh = :yhbh")
+        session.execute(query, {"face_url": face_url, "yhbh": yhbh})
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
