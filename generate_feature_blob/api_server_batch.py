@@ -61,6 +61,10 @@ class RunBatchByGradeRequest(BaseModel):
     DQSZJ: str  # 所属年级，必传，如 "2022"
 
 
+class RunBatchByNumberRequest(BaseModel):
+    number: str  # 学号，英文逗号分割
+
+
 # ----------------------------------------
 # 后台任务函数
 # ----------------------------------------
@@ -156,6 +160,97 @@ def bg_run_face_feature_batch_by_grade(task_uuid: str, dqszj: str):
         logger.error(f"[{task_uuid}] 任务异常终止: {str(e)}")
 
 
+def bg_run_face_feature_batch_by_number(task_uuid: str, numbers: list):
+    """
+    按学号批量任务：
+    1. 从 PostgreSQL 按学号列表拉取指定数据
+    2. 追加 UPSERT 到本地 v_user_face_kq
+    3. 对这批数据提取人脸特征，写入 kq_face_feature
+    """
+    logger.info(f"[{task_uuid}] 学号批量任务启动，学号数量={len(numbers)}")
+    try:
+        # 第一步：从 PostgreSQL 拉取指定学号数据
+        logger.info(f"[{task_uuid}] 正在连接 PostgreSQL 查询学号数据...")
+        try:
+            conn = get_pg_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT yhbh, face_url
+                FROM v_user_face_kq
+                WHERE yhbh = ANY(%s)
+                  AND face_url IS NOT NULL
+                  AND face_url != ''
+                """,
+                (numbers,)
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            logger.error(f"[{task_uuid}] 连接 PostgreSQL 失败: {str(e)}")
+            raise
+
+        pg_users = [{"yhbh": row[0], "face_url": row[1]} for row in rows]
+        total = len(pg_users)
+        logger.info(f"[{task_uuid}] PostgreSQL 共查询到 {total} 条学号记录")
+
+        if total == 0:
+            database.update_task_started(task_uuid, 0)
+            database.update_task_finished(task_uuid)
+            logger.warning(f"[{task_uuid}] 无待处理数据，任务结束")
+            return
+
+        # 第二步：追加 UPSERT 到本地 v_user_face_kq
+        logger.info(f"[{task_uuid}] 正在写入本地 v_user_face_kq...")
+        synced = database.upsert_source_faces_batch(pg_users)
+        logger.info(f"[{task_uuid}] 本地 v_user_face_kq 已追加/更新 {synced} 条数据")
+
+        # 第三步：提取人脸特征
+        database.update_task_started(task_uuid, total)
+
+        for index, user in enumerate(pg_users):
+            yhbh = user.get("yhbh", "")
+            url = user.get("face_url", "")
+            logger.info(f"[{task_uuid}] [{index+1}/{total}] 处理学号: {yhbh}")
+            try:
+                if not url:
+                    raise Exception("face_url 为空")
+
+                # 下载图片
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                resp = urllib.request.urlopen(req, timeout=10)
+                image_bytes = resp.read()
+
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is None:
+                    raise Exception("无法解析图片")
+
+                # 提取特征
+                feature, score, padding = face_service.get_feature(img)
+                if feature is None:
+                    raise Exception("检测不到有效人脸")
+
+                database.save_target_feature(user_id=yhbh, feature=feature, threshold=0.45)
+                logger.info(f"   [成功] 学号: {yhbh}, 置信度: {score:.4f}")
+                database.update_task_progress(task_uuid, success_delta=1)
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"   [失败] 学号: {yhbh} -> {error_msg}")
+                database.update_task_progress(
+                    task_uuid,
+                    failed_item={"yhbh": yhbh, "face_url": url, "error": error_msg}
+                )
+
+        database.update_task_finished(task_uuid)
+        logger.info(f"[{task_uuid}] 学号批量任务全部完成")
+
+    except Exception as e:
+        logger.error(f"[{task_uuid}] 任务异常终止: {str(e)}")
+
+
 # ----------------------------------------
 # 接口端点
 # ----------------------------------------
@@ -172,13 +267,40 @@ def run_batch_by_grade(req: RunBatchByGradeRequest, background_tasks: Background
     if not dqszj or len(dqszj) != 4 or not dqszj.isdigit():
         raise HTTPException(status_code=400, detail="DQSZJ 参数格式错误，应为 4 位年份数字，如 '2022'")
 
-    task_uuid = database.create_batch_task(task_type=f"FACE_FEATURE_BATCH_GRADE")
+    task_uuid = database.create_batch_task(task_type=f"FACE_FEATURE_BATCH")
     background_tasks.add_task(bg_run_face_feature_batch_by_grade, task_uuid, dqszj)
     logger.info(f"年级批量任务已创建，DQSZJ={dqszj}，task_uuid={task_uuid}")
     return {
         "code": 200,
         "message": f"年级 {dqszj} 的批量任务已启动",
         "data": {"task_uuid": task_uuid, "DQSZJ": dqszj}
+    }
+
+
+@app.post("/api/face_feature/run_batch_by_number")
+def run_batch_by_number(req: RunBatchByNumberRequest, background_tasks: BackgroundTasks):
+    """
+    按学号批量触发人脸特征提取：
+    1. 根据传入学号（英文逗号分割）拉取指定数据
+    2. 提取人脸特征写入 kq_face_feature
+    立即返回 task_uuid，后台异步执行
+    """
+    number_str = req.number.strip()
+    if not number_str:
+        raise HTTPException(status_code=400, detail="number 参数不能为空")
+    
+    # 解析学号列表
+    numbers = [n.strip() for n in number_str.split(",") if n.strip()]
+    if not numbers:
+        raise HTTPException(status_code=400, detail="未解析到有效学号")
+
+    task_uuid = database.create_batch_task(task_type="FACE_FEATURE_BATCH")
+    background_tasks.add_task(bg_run_face_feature_batch_by_number, task_uuid, numbers)
+    logger.info(f"学号批量任务已创建，数量={len(numbers)}，task_uuid={task_uuid}")
+    return {
+        "code": 200,
+        "message": f"已启动 {len(numbers)} 个学号的批量任务",
+        "data": {"task_uuid": task_uuid, "numbers": numbers}
     }
 
 

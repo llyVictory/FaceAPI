@@ -291,6 +291,16 @@ class BatchTask(Base):
     success_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
     failed_details = Column(Text, default='[]')
+    attr1 = Column(String(128))
+    attr2 = Column(String(128))
+    attr3 = Column(String(128))
+    attr4 = Column(String(128))
+    attr5 = Column(String(128))
+    attr6 = Column(String(128))
+    attr7 = Column(String(128))
+    attr8 = Column(String(128))
+    attr9 = Column(String(128))
+    attr10 = Column(String(128))
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -407,7 +417,8 @@ def get_task_status(task_uuid: str) -> Optional[dict]:
         row = session.execute(
             text("""
                 SELECT task_uuid, task_type, status, total_count, success_count,
-                       failed_count, failed_details, created_at, updated_at
+                       failed_count, failed_details, created_at, updated_at,
+                       attr1, attr2, attr3, attr4, attr5, attr6, attr7, attr8, attr9, attr10
                 FROM kq_batch_task WHERE task_uuid=:uuid
             """),
             {"uuid": task_uuid}
@@ -424,6 +435,8 @@ def get_task_status(task_uuid: str) -> Optional[dict]:
             "failed_details": json.loads(row[6] or '[]'),
             "created_at": row[7].strftime('%Y-%m-%d %H:%M:%S') if row[7] else None,
             "updated_at": row[8].strftime('%Y-%m-%d %H:%M:%S') if row[8] else None,
+            "attr1": row[9], "attr2": row[10], "attr3": row[11], "attr4": row[12], "attr5": row[13],
+            "attr6": row[14], "attr7": row[15], "attr8": row[16], "attr9": row[17], "attr10": row[18],
         }
     finally:
         session.close()
@@ -440,7 +453,8 @@ def list_batch_tasks(task_type: Optional[str] = None, page: int = 1, limit: int 
         rows = session.execute(
             text(f"""
                 SELECT task_uuid, task_type, status, total_count, success_count,
-                       failed_count, created_at, updated_at
+                       failed_count, created_at, updated_at,
+                       attr1, attr2, attr3, attr4, attr5, attr6, attr7, attr8, attr9, attr10
                 FROM kq_batch_task
                 {where}
                 ORDER BY created_at DESC
@@ -457,6 +471,8 @@ def list_batch_tasks(task_type: Optional[str] = None, page: int = 1, limit: int 
             "failed_count": r[5],
             "created_at": r[6].strftime('%Y-%m-%d %H:%M:%S') if r[6] else None,
             "updated_at": r[7].strftime('%Y-%m-%d %H:%M:%S') if r[7] else None,
+            "attr1": r[8], "attr2": r[9], "attr3": r[10], "attr4": r[11], "attr5": r[12],
+            "attr6": r[13], "attr7": r[14], "attr8": r[15], "attr9": r[16], "attr10": r[17],
         } for r in rows]
     finally:
         session.close()
