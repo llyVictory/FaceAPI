@@ -62,7 +62,8 @@ class RunBatchByGradeRequest(BaseModel):
 
 
 class RunBatchByNumberRequest(BaseModel):
-    number: str  # 学号，英文逗号分割
+    number: str  # 学号，英文逗号分割，必传
+    attr1: str   # 备用字段1，必传
 
 
 # ----------------------------------------
@@ -150,6 +151,7 @@ def bg_run_face_feature_batch_by_grade(task_uuid: str, dqszj: str):
                 logger.error(f"   [失败] 学号: {yhbh} -> {error_msg}")
                 database.update_task_progress(
                     task_uuid,
+                    success_delta=0,
                     failed_item={"yhbh": yhbh, "face_url": url, "error": error_msg}
                 )
 
@@ -192,13 +194,26 @@ def bg_run_face_feature_batch_by_number(task_uuid: str, numbers: list):
             raise
 
         pg_users = [{"yhbh": row[0], "face_url": row[1]} for row in rows]
-        total = len(pg_users)
-        logger.info(f"[{task_uuid}] PostgreSQL 共查询到 {total} 条学号记录")
+        total_found = len(pg_users)
+        logger.info(f"[{task_uuid}] PostgreSQL 共查询到 {total_found} 条学号记录")
 
-        if total == 0:
-            database.update_task_started(task_uuid, 0)
+        # 第三步：提取人脸特征 (total_count 始终为传入学号的总数)
+        database.update_task_started(task_uuid, len(numbers))
+
+        # 第四步：对比传入学号，记录 PostgreSQL 中缺失的学号为失败
+        found_yhbhs = {user["yhbh"] for user in pg_users}
+        for num in numbers:
+            if num not in found_yhbhs:
+                logger.warning(f"[{task_uuid}] 学号 {num} 未查询到有效照片数据")
+                database.update_task_progress(
+                    task_uuid,
+                    success_delta=0,
+                    failed_item={"yhbh": num, "face_url": "", "error": "未查询到有效照片数据"}
+                )
+
+        if total_found == 0:
             database.update_task_finished(task_uuid)
-            logger.warning(f"[{task_uuid}] 无待处理数据，任务结束")
+            logger.warning(f"[{task_uuid}] 无有效图片数据，任务结束")
             return
 
         # 第二步：追加 UPSERT 到本地 v_user_face_kq
@@ -206,13 +221,10 @@ def bg_run_face_feature_batch_by_number(task_uuid: str, numbers: list):
         synced = database.upsert_source_faces_batch(pg_users)
         logger.info(f"[{task_uuid}] 本地 v_user_face_kq 已追加/更新 {synced} 条数据")
 
-        # 第三步：提取人脸特征
-        database.update_task_started(task_uuid, total)
-
         for index, user in enumerate(pg_users):
             yhbh = user.get("yhbh", "")
             url = user.get("face_url", "")
-            logger.info(f"[{task_uuid}] [{index+1}/{total}] 处理学号: {yhbh}")
+            logger.info(f"[{task_uuid}] [{index+1}/{total_found}] 处理学号: {yhbh}")
             try:
                 if not url:
                     raise Exception("face_url 为空")
@@ -241,6 +253,7 @@ def bg_run_face_feature_batch_by_number(task_uuid: str, numbers: list):
                 logger.error(f"   [失败] 学号: {yhbh} -> {error_msg}")
                 database.update_task_progress(
                     task_uuid,
+                    success_delta=0,
                     failed_item={"yhbh": yhbh, "face_url": url, "error": error_msg}
                 )
 
@@ -255,7 +268,7 @@ def bg_run_face_feature_batch_by_number(task_uuid: str, numbers: list):
 # 接口端点
 # ----------------------------------------
 
-@app.post("/api/face_feature/run_batch_by_grade")
+# @app.post("/api/face_feature/run_batch_by_grade")
 def run_batch_by_grade(req: RunBatchByGradeRequest, background_tasks: BackgroundTasks):
     """
     按年级批量触发人脸特征提取（必传 DQSZJ）：
@@ -294,7 +307,14 @@ def run_batch_by_number(req: RunBatchByNumberRequest, background_tasks: Backgrou
     if not numbers:
         raise HTTPException(status_code=400, detail="未解析到有效学号")
 
-    task_uuid = database.create_batch_task(task_type="FACE_FEATURE_BATCH")
+    attr1_val = req.attr1.strip()
+    if not attr1_val:
+        raise HTTPException(status_code=400, detail="attr1 参数不能为空")
+
+    task_uuid = database.create_batch_task(
+        task_type="FACE_FEATURE_BATCH",
+        attr1=attr1_val
+    )
     background_tasks.add_task(bg_run_face_feature_batch_by_number, task_uuid, numbers)
     logger.info(f"学号批量任务已创建，数量={len(numbers)}，task_uuid={task_uuid}")
     return {

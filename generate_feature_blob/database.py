@@ -308,8 +308,8 @@ class BatchTask(Base):
 TASK_TYPE_FACE_FEATURE_BATCH = 'FACE_FEATURE_BATCH'
 
 
-def create_batch_task(task_type: str = TASK_TYPE_FACE_FEATURE_BATCH) -> str:
-    """创建批量任务记录，返回 task_uuid"""
+def create_batch_task(task_type: str = TASK_TYPE_FACE_FEATURE_BATCH, **kwargs) -> str:
+    """创建批量任务记录，返回 task_uuid，支持传入 attr1-attr10 等备用字段"""
     task_uuid = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
     session = SessionLocal()
@@ -323,6 +323,16 @@ def create_batch_task(task_type: str = TASK_TYPE_FACE_FEATURE_BATCH) -> str:
             success_count=0,
             failed_count=0,
             failed_details='[]',
+            attr1=kwargs.get('attr1'),
+            attr2=kwargs.get('attr2'),
+            attr3=kwargs.get('attr3'),
+            attr4=kwargs.get('attr4'),
+            attr5=kwargs.get('attr5'),
+            attr6=kwargs.get('attr6'),
+            attr7=kwargs.get('attr7'),
+            attr8=kwargs.get('attr8'),
+            attr9=kwargs.get('attr9'),
+            attr10=kwargs.get('attr10'),
         )
         session.add(task)
         session.commit()
@@ -366,22 +376,21 @@ def update_task_progress(task_uuid: str, success_delta: int = 0, failed_item: Op
             return
 
         new_success = row[0] + success_delta
-        new_failed = row[1]
         details = json.loads(row[2] or '[]')
 
         if failed_item:
-            new_failed += 1
             details.append(failed_item)
 
         session.execute(
             text("""
                 UPDATE kq_batch_task
-                SET success_count=:s, failed_count=:f, failed_details=:d
+                SET success_count=:s, 
+                    failed_details=:d,
+                    failed_count = CASE WHEN total_count > :s THEN total_count - :s ELSE 0 END
                 WHERE task_uuid=:uuid
             """),
             {
                 "s": new_success,
-                "f": new_failed,
                 "d": json.dumps(details, ensure_ascii=False),
                 "uuid": task_uuid
             }
@@ -395,11 +404,16 @@ def update_task_progress(task_uuid: str, success_delta: int = 0, failed_item: Op
 
 
 def update_task_finished(task_uuid: str):
-    """所有记录处理完成后，更新任务状态为 completed"""
+    """所有记录处理完成后，更新任务状态为 completed，并自动计算失败数"""
     session = SessionLocal()
     try:
         session.execute(
-            text("UPDATE kq_batch_task SET status='completed' WHERE task_uuid=:uuid"),
+            text("""
+                UPDATE kq_batch_task 
+                SET status='completed', 
+                    failed_count = CASE WHEN total_count > success_count THEN total_count - success_count ELSE 0 END
+                WHERE task_uuid=:uuid
+            """),
             {"uuid": task_uuid}
         )
         session.commit()
